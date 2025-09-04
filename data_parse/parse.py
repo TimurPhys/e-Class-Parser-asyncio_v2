@@ -3,16 +3,29 @@ from selenium.webdriver.common.by import By
 import time
 import os
 import requests
+import json
 
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
 
+from __init__ import headers
+
 # period = 1 - 1-ый семестр
 # period = 2 - 2-ый семестр
 # period = 3 - весь год
-def get_stats(username, password, period):
-    driver = webdriver.Chrome()
+
+
+driver = webdriver.Chrome()
+def get_auth_token():
+    token = driver.execute_script("return window.sessionStorage")
+    token_raw = json.loads(token['oidc.secureTokens.currentToken'])
+    auth_token = token_raw['token_type'] + " " + token_raw['id_token']
+    return auth_token
+
+
+
+def get_profiles(username, password):
     driver.get("https://www.e-klase.lv")
 
     time.sleep(2)
@@ -41,6 +54,22 @@ def get_stats(username, password, period):
 
     time.sleep(2)
 
+    driver.get("https://family.e-klase.lv/profile-selection")
+
+    session = requests.Session()
+    for cookie in driver.get_cookies():
+        session.cookies.set(cookie['name'], cookie['value'])
+
+    token = get_auth_token()
+    headers["Authorization"] = token
+
+    response = session.get("https://family.e-klase.lv/api/user/profiles", headers=headers)
+    profiles = json.loads(response.content)['activeProfiles']
+    return profiles
+
+
+def get_stats(profile, period):
+    profileId = profile['profileId']
     driver.get("https://family.e-klase.lv/overview")
 
     time.sleep(1)
@@ -49,6 +78,7 @@ def get_stats(username, password, period):
     for cookie in driver.get_cookies():
         session.cookies.set(cookie['name'], cookie['value'])
 
+    headers["X-Profile-Id"] = profileId
 
     file_url = ""
     if (period == 1):
@@ -58,32 +88,20 @@ def get_stats(username, password, period):
     elif (period == 3):
         file_url = "https://family.e-klase.lv/api/evaluation-reports?from=2025-09-01&to=2026-08-31"
 
-    response = session.get(file_url, stream=True)
-
-    # download_dir = "B:\Python Projects and Tutorials\eClassParser2.0Aiogram"
-    #
-    # options = webdriver.ChromeOptions()
-    # options.add_experimental_option("prefs", {
-    #     "download.default_directory": download_dir,
-    #     "download.prompt_for_download": False,
-    #     "download.directory_upgrade": True,
-    #     "plugins.always_open_pdf_externally": True
-    # })
-    # driver = webdriver.Chrome(options=options)
+    response = session.get(file_url, headers=headers)
 
     time.sleep(2)
 
-    file_name = f"Izraksts_username={username}_period={period}.pdf"
+    file_name = f"Izraksts_profile={profileId}_period={period}.pdf"
     file_path = os.path.join("../downloads", file_name)
 
-    print(response.content)
     with open(file_path, "wb") as pdf_file:
-        for chunk in response.iter_content(chunk_size=8192):
-            if chunk:
-                pdf_file.write(chunk)
-
+        pdf_file.write(response.content)
     driver.close()
     driver.quit()
 
 
-get_stats("180108-24659", "v537nami", 1)
+
+profiles = get_profiles("180108-24659", "v537nami")
+
+get_stats(profiles[0], 1)
